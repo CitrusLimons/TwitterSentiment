@@ -1,0 +1,2 @@
+source_file,total_rows_read,rows_used_after_filtering,monthly_periods,weekly_periods,top_n,min_count,chunk_size
+D:\downloads\BigData\training.1600000.processed.noemoticon.csv,1600000,1600000,3,11,15,30,100000
