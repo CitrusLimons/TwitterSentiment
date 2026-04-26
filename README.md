@@ -3,7 +3,7 @@
 ## Overview
 This project implements a complete pipeline for Twitter sentiment analysis using the Sentiment140 dataset. It includes:
 
-- Custom Twitter-aware tokenizer (By Christopher Pott)
+- Custom Twitter-aware tokenizer (By Christopher Potts)
 - Text preprocessing and feature engineering
 - Model training and evaluation (Logistic Regression & Linear SVM)
 - Sentiment prediction (batch + interactive) https://www.kaggle.com/datasets/kazanova/sentiment140
