@@ -2,9 +2,10 @@
 
 ## Overview
 
-This project implements a complete end-to-end pipeline for Twitter sentiment analysis using the Sentiment140 dataset (1.6M labeled tweets). It covers everything from Twitter-aware tokenization and feature engineering to model training, batch/interactive prediction, temporal trend analysis, and distinctive word tracking over time.
+This project implements a complete end-to-end pipeline for Twitter sentiment analysis using the [Sentiment140 dataset](https://www.kaggle.com/datasets/kazanova/sentiment140) (1.6M labeled tweets). It covers everything from Twitter-aware tokenization and feature engineering to model training, batch/interactive prediction, temporal trend analysis, and distinctive word tracking over time.
 
-**Dataset:** Sentiment140 — 1,600,000 tweets labeled as positive (4) or negative (0).
+**Dataset:** [Sentiment140 — 1,600,000 tweets labeled as positive (4) or negative (0)](https://www.kaggle.com/datasets/kazanova/sentiment140)  
+**Live Demo:** [Try the sentiment classifier on Hugging Face Spaces](https://huggingface.co/spaces/CitrusLimons/TwitterSentiment)
 
 ---
 
@@ -22,7 +23,7 @@ This project implements a complete end-to-end pipeline for Twitter sentiment ana
 
 ## Requirements
 
-Install dependencies:
+Install dependencies with:
 
 ```bash
 pip install pandas numpy scikit-learn scipy matplotlib tqdm
@@ -34,80 +35,168 @@ Python 3.8+ is recommended.
 
 ## Setup
 
-1. Download the Sentiment140 dataset from Kaggle  
-2. Place `training.1600000.processed.noemoticon.csv` in your data directory  
-3. Update file paths in scripts (default: `D:\downloads\BigData\`)  
-4. Run training first
+1. Download the [Sentiment140 dataset from Kaggle](https://www.kaggle.com/datasets/kazanova/sentiment140) and place `training.1600000.processed.noemoticon.csv` in your data directory.
+2. Update the file paths at the top of each script to match your local directory (default: `D:\downloads\BigData\`).
+3. Run `trainsenti.py` first to train and save the models before running any other script.
 
 ---
 
 ## Pipeline
 
-### Tokenization — `happyfuntokenizing.py`
+### 1. Tokenization — `happyfuntokenizing.py`
 
-Twitter-aware tokenizer handling:
-- Emoticons
-- @mentions and #hashtags
-- URLs
-- Punctuation normalization
+A regex-based tokenizer by **Christopher Potts** (v1.0, CC BY-NC-SA 3.0) designed specifically for Twitter text. It handles:
+
+- Emoticons (preserved regardless of case setting)
+- `@mentions` and `#hashtags`
+- URLs and HTML entities
+- Phone numbers, ellipsis, and punctuation
+
+**Usage:**
+```python
+from happyfuntokenizing import Tokenizer
+tok = Tokenizer(preserve_case=False)
+tokens = tok.tokenize("RT @user: loving this project :)")
+```
 
 ---
 
-### Training — `trainsenti.py`
+### 2. Training — `trainsenti.py`
 
-**Models:**
-- Logistic Regression
-- LinearSVC
+Loads and preprocesses the Sentiment140 CSV, engineers features, trains two classifiers, and saves model bundles as `.pkl` files.
+
+**Preprocessing steps:**
+- HTML entity decoding (`&amp;` → `and`, etc.)
+- URL normalization → `URL` token
+- `@mention` normalization → `USER` token
+- Hashtag stripping (`#tag` → `tag`)
+- Retweet marker (`RT`) removal
+- Whitespace cleanup
+
+**Feature engineering:**
+- TF-IDF (unigrams + bigrams, up to 50,000 features, sublinear TF scaling)
+- Meta features appended as sparse columns:
+
+| Feature | Description |
+|---|---|
+| `char_len` | Total character count |
+| `word_count` | Token count via Tokenizer |
+| `exclam_count` | Number of `!` characters |
+| `question_count` | Number of `?` characters |
+| `has_url` | Binary: URL present |
+| `has_user` | Binary: @mention present |
+| `has_happy_face` | Binary: `:)` `:D` `<3` etc. |
+| `has_sad_face` | Binary: `:(` `:'(` etc. |
+
+**Train/test split:** 80/20 stratified.
 
 **Outputs:**
-- sentiment_lr.pkl
-- sentiment_svc.pkl
-- model_comparison_results.csv
+- `sentiment_lr.pkl` — Logistic Regression bundle
+- `sentiment_svc.pkl` — LinearSVC bundle
+- `model_comparison_results.csv` — Accuracy, F1, and training time per model
+
+**Run:**
+```bash
+python trainsenti.py
+```
+
+> On first run, the preprocessed data is cached to `preprocessed_sentiment140.csv`. Subsequent runs load from cache automatically.
+
+---
+
+### 3. Prediction — `predict.py`
+
+Loads both saved model bundles and runs sentiment prediction in two modes.
+
+**Batch mode:** Evaluates 20 hand-crafted positive tweets and 20 negative tweets, printing per-tweet predictions, confidence scores (Logistic Regression only), and batch accuracy.
+
+**Interactive mode:** Prompts for user-entered tweets in a loop and shows predictions from both models side by side. Press `Ctrl+C` to quit.
+
+**Output format:**
+```
+[01] Gas prices are rough but at least leaders are trying...
+  -> [+] POSITIVE | 82.4% | OK
+```
+
+**Run:**
+```bash
+python predict.py
+```
+
+> Model files (`sentiment_lr.pkl`, `sentiment_svc.pkl`) must exist before running. Train first with `trainsenti.py`.
+
+---
+
+### 4. Temporal Analysis — `timesent.py`
+
+Analyzes how sentiment and tweet volume shift across hours of the day and days of the week. Only days with at least 500 tweets are included to avoid noisy low-volume days.
+
+**Outputs (saved to `output/`):**
+
+| File | Description |
+|---|---|
+| `sentiment_by_hour.png` | Bar + line chart: volume and positive ratio by UTC hour |
+| `sentiment_by_weekday.png` | Bar chart: positive ratio by weekday |
+| `heatmap_hour_weekday.png` | Heatmap: positive ratio across hour × weekday |
+| `rolling_volume_sentiment_correlation.png` | 7-day rolling Pearson r between volume and sentiment |
+| `sentiment_by_hour.csv` | Hourly summary table |
+| `sentiment_by_weekday.csv` | Weekday summary table |
+
+An insight report is also printed to the console summarizing peak positive/negative hours, best/worst weekday, and whether high-volume days trend positive or negative.
+
+**Run:**
+```bash
+python timesent.py
+```
+
+---
+
+### 5. Top Words Over Time — `topwords.py`
+
+Tracks which words are most distinctively positive or negative for each week and month using **log-odds scoring** with a Dirichlet prior (smoothing parameter α=0.5).
+
+Words are filtered through:
+- Core stopword list (standard English + informal Twitter terms)
+- Twitter-specific noise (`rt`, `url`, `amp`, etc.)
+- Spam blacklist (known spammy hashtags/accounts)
+- Event noise list (viral proper nouns that skew results)
+- Negation handling: tokens following negation words (e.g., `not`, `never`) are prefixed `NOT_` (e.g., `NOT_good`)
+
+Data is processed in chunks of 100,000 rows for memory efficiency. Minimum word count threshold: 30 occurrences per period.
+
+**Outputs (saved to `output/top_words_over_time/`):**
+
+| File | Description |
+|---|---|
+| `top_words_by_month_distinctive.csv` | Monthly top-N positive/negative words with log-odds scores |
+| `top_words_by_week_distinctive.csv` | Weekly version of the above |
+| `top_words_run_summary.csv` | Run metadata (rows processed, periods found, parameters) |
+| `top_positive_words_month_YYYY-MM.png` | Horizontal bar chart per month (positive) |
+| `top_negative_words_month_YYYY-MM.png` | Horizontal bar chart per month (negative) |
+| `top_positive_words_week_YYYY-WNN.png` | Horizontal bar chart per week (positive) |
+| `top_negative_words_week_YYYY-WNN.png` | Horizontal bar chart per week (negative) |
+
+**Run:**
+```bash
+python topwords.py
+```
 
 ---
 
 ## Model Performance
 
-### Logistic Regression
-- Accuracy: 0.8251
-- F1-score: 0.8271
+All metrics computed on the **held-out test set (20% of total data)**.
 
-### LinearSVC
-- Accuracy: 0.8234
-- F1-score: 0.8258
-
-| Model | Accuracy | F1 | Time |
-|------|----------|----|------|
-| Logistic Regression | 0.8251 | 0.8271 | 174.3s |
+| Model | Accuracy | F1-score | Training Time |
+|---|---|---|---|
+| **Logistic Regression** | **0.8251** | **0.8271** | 174.3s |
 | LinearSVC | 0.8234 | 0.8258 | 116.5s |
 
----
-
-### Prediction — `predict.py`
-
-- Batch evaluation
-- Interactive CLI predictions
-- Confidence scores (LogReg)
+Logistic Regression edges out LinearSVC on both accuracy and F1, though LinearSVC trains ~33% faster. Logistic Regression also provides confidence scores (via `predict_proba`), which LinearSVC does not.
 
 ---
 
-### Temporal Analysis — `timesent.py`
-
-- Hourly sentiment trends
-- Weekday sentiment shifts
-- Rolling correlation analysis
-
----
-
-### Top Words — `topwords.py`
-
-- Log-odds scoring (α=0.5 smoothing)
-- Weekly/monthly tracking
-- Visualizations per time period
-
----
-
-## Output Structure
+## Output Directory Layout
 
 ```
 output/
@@ -115,12 +204,38 @@ output/
 ├── sentiment_by_weekday.png
 ├── heatmap_hour_weekday.png
 ├── rolling_volume_sentiment_correlation.png
+├── sentiment_by_hour.csv
+├── sentiment_by_weekday.csv
 └── top_words_over_time/
+    ├── top_words_by_month_distinctive.csv
+    ├── top_words_by_week_distinctive.csv
+    ├── top_words_run_summary.csv
+    ├── top_positive_words_month_YYYY-MM.png
+    ├── top_negative_words_month_YYYY-MM.png
+    ├── top_positive_words_week_YYYY-WNN.png
+    └── top_negative_words_week_YYYY-WNN.png
 ```
+
+---
+
+## Configuration
+
+Key constants can be adjusted at the top of each script:
+
+| Script | Constant | Default | Description |
+|---|---|---|---|
+| `trainsenti.py` | `MAX_FEATURES` | `50000` | TF-IDF vocabulary size |
+| `trainsenti.py` | `TEST_SIZE` | `0.20` | Train/test split ratio |
+| `trainsenti.py` | `C_VALUE` | `2.0` | Logistic Regression regularization |
+| `timesent.py` | `MIN_TWEETS_PER_DAY` | `500` | Minimum daily tweets to include |
+| `topwords.py` | `TOP_N` | `15` | Top words per period per sentiment |
+| `topwords.py` | `MIN_COUNT` | `30` | Minimum word frequency per period |
+| `topwords.py` | `CHUNK_SIZE` | `100000` | Rows per processing chunk |
 
 ---
 
 ## Credits
 
-- Christopher Potts — Twitter Tokenizer
-- Go et al. (2009) — Sentiment140 dataset
+- **Tokenizer:** Christopher Potts, Stanford NLP — [happyfuntokenizing.py](http://sentiment.christopherpotts.net/tokenizing.html) (CC BY-NC-SA 3.0)
+- **Dataset:** Go, A., Bhayani, R., & Huang, L. (2009). *Twitter Sentiment Classification using Distant Supervision.* Available on [Kaggle](https://www.kaggle.com/datasets/kazanova/sentiment140)
+- **Live Demo:** [Hugging Face Spaces — CitrusLimons/TwitterSentiment](https://huggingface.co/spaces/CitrusLimons/TwitterSentiment)
