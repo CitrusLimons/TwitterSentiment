@@ -60,7 +60,7 @@ tokens = tok.tokenize("RT @user: loving this project :)")
 
 ---
 
-### 2. Training — `trainsenti-5.py`
+### 2. Training — `trainsenti.py`
 
 Loads and preprocesses the Sentiment140 CSV, engineers features, trains two classifiers, and saves model bundles as `.pkl` files.
 
@@ -107,7 +107,7 @@ python trainsenti-5.py
 
 ---
 
-### 3. Prediction — `predict-2.py`
+### 3. Prediction — `predict.py`
 
 Loads both saved model bundles and runs sentiment prediction in two modes.
 
@@ -123,14 +123,14 @@ Loads both saved model bundles and runs sentiment prediction in two modes.
 
 **Run:**
 ```bash
-python predict-2.py
+python predict.py
 ```
 
-> Model paths (`sentiment_lr.pkl`, `sentiment_svc.pkl`) must exist before running. Train first with `trainsenti-5.py`.
+> Model paths (`sentiment_lr.pkl`, `sentiment_svc.pkl`) must exist before running. Train first with `trainsenti.py`.
 
 ---
 
-### 4. Temporal Analysis — `timesent-3.py`
+### 4. Temporal Analysis — `timesent.py`
 
 Analyzes how sentiment and tweet volume shift across hours of the day and days of the week. Only days with at least 500 tweets are included to avoid noisy low-volume days.
 
@@ -149,12 +149,12 @@ An **insight report** is also printed to the console summarizing peak positive/n
 
 **Run:**
 ```bash
-python timesent-3.py
+python timesent.py
 ```
 
 ---
 
-### 5. Top Words Over Time — `topwords-4.py`
+### 5. Top Words Over Time — `topwords.py`
 
 Tracks which words are most distinctively positive or negative for each week and month, using **log-odds scoring** with a Dirichlet prior (smoothing parameter α=0.5).
 
@@ -181,7 +181,7 @@ Words are filtered through:
 
 **Run:**
 ```bash
-python topwords-4.py
+python topwords.py
 ```
 
 ---
@@ -214,13 +214,13 @@ Key constants can be adjusted at the top of each script:
 
 | Script | Constant | Default | Description |
 |---|---|---|---|
-| `trainsenti-5.py` | `MAX_FEATURES` | `50000` | TF-IDF vocabulary size |
-| `trainsenti-5.py` | `TEST_SIZE` | `0.20` | Train/test split ratio |
-| `trainsenti-5.py` | `C_VALUE` | `2.0` | Logistic Regression regularization |
-| `timesent-3.py` | `MIN_TWEETS_PER_DAY` | `500` | Minimum daily tweets to include |
-| `topwords-4.py` | `TOP_N` | `15` | Top words per period per sentiment |
-| `topwords-4.py` | `MIN_COUNT` | `30` | Minimum word frequency per period |
-| `topwords-4.py` | `CHUNK_SIZE` | `100000` | Rows per processing chunk |
+| `trainsenti.py` | `MAX_FEATURES` | `50000` | TF-IDF vocabulary size |
+| `trainsenti.py` | `TEST_SIZE` | `0.20` | Train/test split ratio |
+| `trainsenti.py` | `C_VALUE` | `2.0` | Logistic Regression regularization |
+| `timesent.py` | `MIN_TWEETS_PER_DAY` | `500` | Minimum daily tweets to include |
+| `topwords.py` | `TOP_N` | `15` | Top words per period per sentiment |
+| `topwords.py` | `MIN_COUNT` | `30` | Minimum word frequency per period |
+| `topwords.py` | `CHUNK_SIZE` | `100000` | Rows per processing chunk |
 
 ---
 
