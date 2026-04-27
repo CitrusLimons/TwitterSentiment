@@ -6,9 +6,15 @@ from pathlib import Path
 import pandas as pd
 from scipy.sparse import csr_matrix, hstack
 
-MODEL_PATH = Path(r"D:\downloads\BigData\sentiment_model_fixed.pkl")
+from happyfuntokenizing import Tokenizer
 
-# AI Generated Tweets based on recent news about the Russia-Ukraine conflict, energy prices, inflation, and the Lyrid meteor shower. These are designed to be realistic and challenging for sentiment analysis models.
+
+LR_MODEL_PATH = Path(r"D:\downloads\BigData\sentiment_lr.pkl")
+SVC_MODEL_PATH = Path(r"D:\downloads\BigData\sentiment_svc.pkl")
+
+tweet_tokenizer = Tokenizer(preserve_case=False)
+
+
 POSITIVE_TWEETS = [
     "The ceasefire talks might actually lead somewhere this time. Hoping for real peace soon 🙏",
     "Gas prices are rough but at least leaders are trying to stabilize the situation.",
@@ -57,46 +63,56 @@ NEGATIVE_TWEETS = [
 
 
 def preprocess_text(text):
-    text = str(text).lower()
-    text = re.sub(r"http\S+|www\S+", " URL ", text)
+    text = str(text)
+
+    text = text.replace("&quot;", '"')
+    text = text.replace("&amp;", " and ")
+    text = text.replace("&lt;", "<")
+    text = text.replace("&gt;", ">")
+
+    text = re.sub(r"http\S+|www\.\S+", " URL ", text)
     text = re.sub(r"@\w+", " USER ", text)
+
     text = re.sub(r"#(\w+)", r"\1", text)
-    text = text.replace("&quot;", " ")
-    text = re.sub(r"[^a-z0-9'!? ]+", " ", text)
+
+    text = re.sub(r"\brt\b", " ", text, flags=re.IGNORECASE)
+
     text = re.sub(r"\s+", " ", text).strip()
+
     return text
 
 
+def tokenize_for_vectorizer(text):
+    return tweet_tokenizer.tokenize(text)
+
+
 def add_simple_meta_features(series):
-    happy = series.str.extract(r"(:\)|:-\)|:d|xd|<3)", expand=False).notna().astype(int)
-    sad   = series.str.extract(r"(:\(|:-\(|:'\()",     expand=False).notna().astype(int)
     return pd.DataFrame({
-        "char_len":       series.str.len(),
-        "word_count":     series.str.split().str.len(),
-        "exclam_count":   series.str.count(r"!"),
+        "char_len": series.str.len(),
+        "word_count": series.apply(lambda x: len(tokenize_for_vectorizer(x))),
+        "exclam_count": series.str.count(r"!"),
         "question_count": series.str.count(r"\?"),
-        "has_url":        series.str.contains(r"\burl\b",  regex=True).astype(int),
-        "has_user":       series.str.contains(r"\buser\b", regex=True).astype(int),
-        "has_happy_face": happy,
-        "has_sad_face":   sad,
+        "has_url": series.str.contains(r"\bURL\b", regex=True).astype(int),
+        "has_user": series.str.contains(r"\bUSER\b", regex=True).astype(int),
+        "has_happy_face": series.str.contains(r"(?::\)|:-\)|:d|xd|<3|=\))", case=False, regex=True).astype(int),
+        "has_sad_face": series.str.contains(r"(?::\(|:-\(|:'\(|=\()", case=False, regex=True).astype(int),
     }).fillna(0)
 
 
 def load_model(path):
     with open(path, "rb") as f:
         bundle = pickle.load(f)
-    print(f"Model:    {type(bundle['model']).__name__}")
-    print(f"Features: {len(bundle['feature_names']):,}")
-    print(f"Source:   {bundle['source_file']}")
+    print(f"Loaded: {path.name} ({type(bundle['model']).__name__})")
     return bundle["model"], bundle["vectorizer"]
 
 
 def predict(texts, model, vectorizer):
     processed = [preprocess_text(t) for t in texts]
-    series    = pd.Series(processed)
-    X_tfidf   = vectorizer.transform(processed)
-    X_meta    = csr_matrix(add_simple_meta_features(series))
-    X         = hstack([X_tfidf, X_meta])
+    series = pd.Series(processed)
+
+    X_tfidf = vectorizer.transform(processed)
+    X_meta = csr_matrix(add_simple_meta_features(series))
+    X = hstack([X_tfidf, X_meta])
 
     preds = model.predict(X)
     probs = model.predict_proba(X) if hasattr(model, "predict_proba") else None
@@ -104,98 +120,79 @@ def predict(texts, model, vectorizer):
     results = []
     for i, (text, pred) in enumerate(zip(texts, preds)):
         sentiment = "POSITIVE" if pred == 1 else "NEGATIVE"
-        label     = "[+]" if pred == 1 else "[-]"
+        label = "[+]" if pred == 1 else "[-]"
+
         if probs is not None:
             neg_p, pos_p = probs[i][0], probs[i][1]
-            conf_str = f"{max(neg_p, pos_p):.1%}  (neg={neg_p:.1%}, pos={pos_p:.1%})"
+            conf_str = f"{max(neg_p, pos_p):.1%}"
         else:
-            conf_str = "N/A (LinearSVC)"
+            conf_str = "N/A"
+
         results.append((text, sentiment, label, conf_str))
     return results
 
 
-def run_batch(label, tweets, expected, model, vectorizer):
-    """Run a labeled batch and print results with correct/wrong markers."""
+def run_batch(label, tweets, expected, model, vectorizer, model_name):
     print(f"\n{'='*60}")
-    print(f"  {label}  (expected: {expected})")
+    print(f"{model_name} | {label} (expected: {expected})")
     print(f"{'='*60}")
 
     results = predict(tweets, model, vectorizer)
 
     correct = 0
     for i, (text, sentiment, lbl, conf) in enumerate(results, 1):
-        match   = sentiment == expected
+        match = sentiment == expected
         correct += int(match)
-        status  = "OK" if match else "WRONG"
+        status = "OK" if match else "WRONG"
         preview = text if len(text) <= 70 else text[:67] + "..."
-        print(f"\n  [{i:02d}] {preview}")
-        print(f"        -> {lbl} {sentiment}  |  {conf}  |  {status}")
+
+        print(f"\n[{i:02d}] {preview}")
+        print(f"     -> {lbl} {sentiment} | {conf} | {status}")
 
     acc = correct / len(tweets) * 100
-    print(f"\n  Accuracy on this set: {correct}/{len(tweets)} = {acc:.1f}%")
+    print(f"\nAccuracy: {correct}/{len(tweets)} = {acc:.1f}%")
+
     return correct, len(tweets)
 
 
-def run_interactive(model, vectorizer):
-    """Keep prompting for new input until Ctrl+C."""
-    print("\n" + "=" * 60)
-    print("  INTERACTIVE MODE")
-    print("  Paste one tweet per line. Blank line to predict.")
-    print("  Ctrl+C to quit.")
-    print("=" * 60)
+def run_interactive(lr_model, lr_vec, svc_model, svc_vec):
+    print("\nINTERACTIVE MODE (Ctrl+C to exit)")
 
     while True:
-        print("\nPaste tweets below:")
-        lines = []
         try:
-            while True:
-                line = input()
-                if line.strip() == "":
-                    break
-                lines.append(line.strip())
+            text = input("\nEnter tweet: ").strip()
         except KeyboardInterrupt:
             print("\nExiting.")
             break
 
-        if not lines:
-            print("No input, try again.")
+        if not text:
             continue
 
-        results = predict(lines, model, vectorizer)
-        print("\n" + "=" * 60)
-        for i, (text, sentiment, lbl, conf) in enumerate(results, 1):
-            preview = text if len(text) <= 80 else text[:77] + "..."
-            print(f"\n[{i}] {preview}")
-            print(f"     -> {lbl} {sentiment}  |  confidence: {conf}")
-        print("=" * 60)
+        lr_res = predict([text], lr_model, lr_vec)[0]
+        svc_res = predict([text], svc_model, svc_vec)[0]
+
+        print("\nLogisticRegression:")
+        print(f"{lr_res[2]} {lr_res[1]} | {lr_res[3]}")
+
+        print("LinearSVC:")
+        print(f"{svc_res[2]} {svc_res[1]} | {svc_res[3]}")
 
 
 def main():
-    if not MODEL_PATH.exists():
-        sys.exit(f"Model not found: {MODEL_PATH}")
+    if not LR_MODEL_PATH.exists() or not SVC_MODEL_PATH.exists():
+        sys.exit("Model files not found.")
 
-    print("Loading model...")
-    model, vectorizer = load_model(MODEL_PATH)
+    lr_model, lr_vec = load_model(LR_MODEL_PATH)
+    svc_model, svc_vec = load_model(SVC_MODEL_PATH)
 
-    # ── Run AI-generated tweet benchmark
-    pos_correct, pos_total = run_batch(
-        "POSITIVE TWEETS (AI-generated)", POSITIVE_TWEETS, "POSITIVE", model, vectorizer
-    )
-    neg_correct, neg_total = run_batch(
-        "NEGATIVE TWEETS (AI-generated)", NEGATIVE_TWEETS, "NEGATIVE", model, vectorizer
-    )
+    for model, vec, name in [
+        (lr_model, lr_vec, "LogisticRegression"),
+        (svc_model, svc_vec, "LinearSVC"),
+    ]:
+        run_batch("POSITIVE", POSITIVE_TWEETS, "POSITIVE", model, vec, name)
+        run_batch("NEGATIVE", NEGATIVE_TWEETS, "NEGATIVE", model, vec, name)
 
-    total_correct = pos_correct + neg_correct
-    total         = pos_total + neg_total
-    print(f"\n{'='*60}")
-    print(f"  OVERALL BENCHMARK RESULT")
-    print(f"  Positive accuracy: {pos_correct}/{pos_total} = {pos_correct/pos_total*100:.1f}%")
-    print(f"  Negative accuracy: {neg_correct}/{neg_total} = {neg_correct/neg_total*100:.1f}%")
-    print(f"  Total accuracy:    {total_correct}/{total} = {total_correct/total*100:.1f}%")
-    print(f"{'='*60}")
-
-    # ── Interactive mode — no y/n, just keeps going
-    run_interactive(model, vectorizer)
+    run_interactive(lr_model, lr_vec, svc_model, svc_vec)
 
 
 if __name__ == "__main__":
