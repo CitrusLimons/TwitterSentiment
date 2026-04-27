@@ -13,10 +13,10 @@ This project implements a complete end-to-end pipeline for Twitter sentiment ana
 | File | Description |
 |---|---|
 | `happyfuntokenizing.py` | Twitter-aware tokenizer (by Christopher Potts) |
-| `trainsenti-5.py` | Data preprocessing, feature engineering, model training & evaluation |
-| `predict-2.py` | Batch and interactive sentiment prediction using saved models |
-| `timesent-3.py` | Temporal sentiment analysis (hourly, weekday, rolling correlation) |
-| `topwords-4.py` | Distinctive word tracking by week/month using log-odds scoring |
+| `trainsenti.py` | Data preprocessing, feature engineering, model training & evaluation |
+| `predict.py` | Batch and interactive sentiment prediction using saved models |
+| `timesent.py` | Temporal sentiment analysis (hourly, weekday, rolling correlation) |
+| `topwords.py` | Distinctive word tracking by week/month using log-odds scoring |
 
 ---
 
