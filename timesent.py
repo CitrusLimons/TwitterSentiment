@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from scipy import stats
 from datetime import datetime
 from tqdm import tqdm
 from pathlib import Path
@@ -14,30 +12,10 @@ OUTDIR.mkdir(parents=True, exist_ok=True)
 COLS = ["sentiment", "id", "date", "query", "user", "text"]
 WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-KNOWN_EVENTS = {
-    "2009-04-06": "L'Aquila earthquake",
-    "2009-04-09": "Easter",
-    "2009-04-15": "Tax Day (US)",
-    "2009-05-01": "Swine flu pandemic",
-    "2009-05-25": "Memorial Day",
-    "2009-06-04": "Tiananmen anniv.",
-    "2009-06-06": "D-Day anniv.",
-    "2009-06-09": "NBA Finals begin",
-    "2009-06-12": "Iran election",
-    "2009-06-13": "Iran protests peak",
-    "2009-06-21": "Father's Day",
-    "2009-06-25": "Michael Jackson dies",
-    "2009-06-26": "Farrah Fawcett dies",
-}
-
 MIN_TWEETS_PER_DAY = 500
 
 tqdm.pandas(desc="Parsing dates")
 
-
-# ────────────────────────────────────────────────────────────
-# DATA LOADING
-# ────────────────────────────────────────────────────────────
 
 def parse_date(date_str):
     try:
@@ -69,11 +47,6 @@ def load_data():
     df["hour"]        = df["hour"].astype(int)
     print(f"  Usable rows: {len(df):,}")
     return df
-
-
-# ────────────────────────────────────────────────────────────
-# AGGREGATION
-# ────────────────────────────────────────────────────────────
 
 def get_valid_days(df):
     day_counts = df.groupby("day")["label"].count()
@@ -126,27 +99,9 @@ def build_hour_weekday_heatmap(df):
         .rename(columns={"label": "positive_ratio"})
     )
 
-
-# ────────────────────────────────────────────────────────────
-# TREND ANALYSIS
-# ────────────────────────────────────────────────────────────
-
-def compute_trend(series):
-    x = np.arange(len(series))
-    mask = series.notna()
-    if mask.sum() < 3:
-        return 0.0, 0.0, 1.0
-    slope, intercept, r, p, _ = stats.linregress(x[mask], series.values[mask])
-    return slope, r**2, p
-
-
 def rolling_correlation(a, b, window=7):
     return a.rolling(window).corr(b)
 
-
-# ────────────────────────────────────────────────────────────
-# PLOTS
-# ────────────────────────────────────────────────────────────
 
 def plot_rolling_correlation(df, outdir):
     """Rolling correlation built directly from raw data, not day_df."""
@@ -269,10 +224,6 @@ def plot_weekday_profile(weekday_df, outdir):
     print("  Saved: sentiment_by_weekday.png")
 
 
-# ────────────────────────────────────────────────────────────
-# INSIGHT REPORT
-# ────────────────────────────────────────────────────────────
-
 def print_insight_report(df, hourly_df, weekday_df):
     print("\n" + "═" * 60)
     print("  PATTERN INSIGHT REPORT")
@@ -311,10 +262,6 @@ def print_insight_report(df, hourly_df, weekday_df):
 
     print("\n" + "═" * 60 + "\n")
 
-
-# ────────────────────────────────────────────────────────────
-# MAIN
-# ────────────────────────────────────────────────────────────
 
 def main():
     df = load_data()

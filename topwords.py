@@ -45,37 +45,22 @@ SPAM_BLACKLIST = {
     "followfriday", "followback", "followme", "tweetmeme"
 }
 
-# ── NEW: words that appear in negative tweets for situational/event reasons
-# but don't reflect stable negative sentiment signal worth tracking
 EVENT_NOISE = {
-    # Celebrity deaths / proper names that spike temporarily
     "farrah", "fawcett", "mcmahon", "carradine", "neda", "rip",
     "billie", "mays", "jacko", "leah",
-    # Airline/disaster event terms
     "airfrance", "passengers", "debris",
-    # Hashtag-like concatenations (caught by length check too, but be explicit)
     "happybdaykrisallen", "dontyouhate", "inaperfectworld", "imisscath",
     "ultrasn", "pakcricket",
-    # Ambiguous single-context tokens
     "gcse", "bts", "activation", "chronicles", "eddings", "noes",
-    # Onomatopoeia / exclamations with no clear sentiment value
     "owie", "aughh", "boohoo", "saddd", "roni", "ceci",
-    # Partial words / abbreviations that slipped through
-    "fml",   # keep if you want "f*** my life" signal; remove if noisy
+    "fml",
 }
 
-# ── NEW: NOT_ phrases to explicitly block (negation + word is too ambiguous
-#         or the raw word is a common positive term that skews oddly negated)
 NOT_BLOCKLIST = {
-    "NOT_angels",   # "not angels" → sports team reference, not sentiment
-    "NOT_camper",   # "not a happy camper" → idiom, not direct sentiment word
-    "NOT_mms",      # technical / app reference
-    "NOT_connect",  # generic tech complaint
-    "NOT_poor",     # confusing double-negative in context
-    "NOT_last",     # too generic
-    "NOT_find",     # too generic
-    "NOT_sick",     # "not sick" is positive, pollutes negative list
+    "NOT_angels", "NOT_camper", "NOT_mms", "NOT_connect", "NOT_poor",
+    "NOT_last", "NOT_find", "NOT_sick",
 }
+
 
 # Pre-compile regexes for performance
 RE_URL        = re.compile(r"http\S+|www\.\S+")
@@ -86,28 +71,15 @@ RE_TOKENS     = re.compile(r"[a-zA-Z][a-zA-Z']*")
 RE_REPEAT     = re.compile(r"(.)\1{3,}")
 RE_CONSONANTS = re.compile(r"^[bcdfghjklmnpqrstvwxyz]{4,}$")
 
-# ── NEW: detect words that look like concatenated phrases (no vowel breaks,
-#         or CamelCase clues are gone post-lowercase → use length + vowel ratio)
+
 def _is_concatenated_phrase(tok: str) -> bool:
     """Heuristic: long token with very high consonant density is likely a
     run-together hashtag like 'happybdaykrisallen' or 'inaperfectworld'."""
     if len(tok) < 12:
         return False
     vowels = sum(1 for c in tok if c in "aeiou")
-    return vowels / len(tok) < 0.28   # typical English prose ~38–40% vowels
+    return vowels / len(tok) < 0.28
 
-# ── NEW: crude proper-noun detector for post-lowercased tokens.
-#         We flag tokens that appear almost exclusively in tweets that also
-#         contain words like "rip", "prayers", "condolences", "died" —
-#         but that's expensive per-token. Instead use a simpler proxy:
-#         flag tokens that are not in a broad English word list.
-#         We approximate this by checking against a small "known good" set
-#         and rejecting very rare letter patterns typical of names.
-RE_LIKELY_NAME = re.compile(
-    r"^(?:"
-    r"[a-z]{2,4}[aeiou][a-z]{1,3}"   # short name-like patterns are hard to rule
-    r")$"
-)
 
 def validate_input_file(path: Path):
     if not path.exists():
@@ -137,11 +109,27 @@ def parse_date_info(date_series):
     })
 
 
-def tokenize_tweet(text):
-    text = str(text).lower()
+def preprocess_text(text):
+    """
+    Light preprocessing matching the model training pipeline.
+    Replaces URLs, mentions, hashtags, and HTML entities without
+    destroying punctuation or emoticons.
+    """
+    text = str(text)
+    text = text.replace("&quot;", '"')
+    text = text.replace("&amp;", " and ")
+    text = text.replace("&lt;", "<")
+    text = text.replace("&gt;", ">")
     text = RE_URL.sub(" URL ", text)
     text = RE_USER.sub(" USER ", text)
     text = RE_HASHTAG.sub(r" \1 ", text)
+    text = re.sub(r"\brt\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def tokenize_tweet(text):
+    text = preprocess_text(text).lower()
     text = RE_POSSESSIVE.sub(r"\1", text)
 
     tokens = RE_TOKENS.findall(text)
@@ -169,7 +157,6 @@ def tokenize_tweet(text):
         if tok in CORE_STOPWORDS or tok in TWITTER_TERMS:
             continue
 
-        # ── Structural junk filters (unchanged)
         if len(tok) > 20:
             continue
         if RE_REPEAT.search(tok):
@@ -177,17 +164,14 @@ def tokenize_tweet(text):
         if RE_CONSONANTS.fullmatch(tok):
             continue
 
-        # ── NEW: drop concatenated hashtag-style tokens
         if _is_concatenated_phrase(tok):
             continue
 
-        # ── NEW: drop tokens in the event-noise or explicit spam lists
         if tok in EVENT_NOISE or tok in SPAM_BLACKLIST:
             continue
 
         if negate and negation_window > 0:
             candidate = "NOT_" + tok
-            # ── NEW: drop explicitly blocked NOT_ phrases
             if candidate not in NOT_BLOCKLIST:
                 cleaned.append(candidate)
             negation_window -= 1
@@ -236,9 +220,6 @@ def compute_distinctive_words(counters, token_totals, top_n):
             if total < MIN_COUNT:
                 continue
 
-            # ── NEW: require the word to appear in at least MIN_COUNT *negative*
-            #         tweets to avoid words that spike in positive and accidentally
-            #         rank on the negative side via log-odds arithmetic
             if n < MIN_COUNT // 2:
                 continue
 
